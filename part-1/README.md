@@ -78,15 +78,86 @@ x86 architecture supports different operating modes that determine the processor
 
 
 ##### Source Code Explained
+###### Part 1
 you maybe wondering why is [this](#set-data-segment) well that because x86 [real mode](#real-mode) memory segmentation wait what [memory segmentation](#memory-segmentation-in-real-mode) so when our programme is going to try access data like some string to print cpu will consult with ds register to find it that's why we set it
 
 ![](./pics/set_data_segment_1.png)
 ![](./pics/set_data_segment_2.png)
 ![](./pics/set_data_segment_3.png)
 
-so if ds=0 cpu will try access 0d:0x9 which has nothing to do with what we are trying to do
+so if ds=0 cpu will try access 0d:0x9 which has nothing to do with what we are trying to do,
+but why not
+
+```s
+mov ax, 0x7c00
+mov ds, ax
+```
+
+didn't you say that our code is loaded at 0x7c00 well yes but the true value that should be in ds is 0x07c0 why ? well
+that has to do with how the cpu uses the value in `ds` well first it shifts by 4 or multiply by 16, and then add the offset, for example access to that `title_str` will be like 
+this ds * 16 + offset = 0x7c00+offset that is why!
+
+![](./pics/set_data_segment_4.png)
+
+###### Part 2
+let's see this <a href="#print_function_1">part</a> why move `0x0e` into `ah` register will I'm going to use BIOS to print something to the screen, well here's link to all [BIOS services](https://en.wikipedia.org/wiki/BIOS_interrupt_call#:~:text=BIOS%20interrupt%20calls%20can%20be,requested%20action%20to%20the%20caller.)
+actually the value `0x0e` in itself is meaningless unless we take look at the other lines `int 0x10` well now it's good because now we are saying that we are interested in `video services` and I'm going to use `Write Character in TTY Mode`
+so this combo
+
+```s
+mov ah, 0x0e
+int 0x10
+```
+
+is saying that we want to print something to the screen, but what are we going to print well we put the value that we want to print into the register `al` and in our case `lodsb` is the one responsible, with this knowledge you should understand `.print_char` label, now let's move on to the part of `.print_done`
+
+details of <a href='#print_function_2_1'>`.print_done`</a>
+again if we take look at that table in the website that I gave you before you will see this
+
+![](./pics/print_1.png)
+
+okay that explains this part
+
+```s
+mov ah, 0x03
+int 0x10
+```
+okay what is the effect of this call? well it will change `cx` and `dx`
+
+- CX: It holds the cursor's column position.
+- DX: It holds the cursor's row position.
+
+so that's why this part
+<a href='#print_function_2_2'>exist</a>
+```s
+mov bh, 0
+```
+but what about that `mov bh, 0` well there's something called pages that I don't care about it for now in BIOS, somehow divides the screen into pages, and I don't want the other instructions to be applied to something else, so this is just defensive move here!!! 
 
 ##### Source Code Parts
+
+###### Print function
+
+<span id="print_function_1"></span>
+```s
+mov ah, 0x0e
+...
+```
+
+<span id="print_function_2_1"></span>
+```s
+mov ah, 0x3
+int 0x10
+```
+
+<span id="print_function_2_2"></span>
+```s
+mov ah, 0x2
+mov dl, 0x0
+mov bh, 0
+int 0x10
+```
+
 
 ###### signature 
 ```asm
@@ -96,6 +167,6 @@ dw 0xaa55
 
 ###### set data segment
 ```asm
-mov ax, 0x7c00
+mov ax, 0x07c0
 mov ds, ax
 ```
