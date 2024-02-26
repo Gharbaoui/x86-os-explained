@@ -134,6 +134,27 @@ mov bh, 0
 ```
 but what about that `mov bh, 0` well there's something called pages that I don't care about it for now in BIOS, somehow divides the screen into pages, and I don't want the other instructions to be applied to something else, so this is just defensive move here!!! 
 
+###### Part 3
+now we are going to load kernel from disk to ram
+<a href="#load_kernel_part_3">set up what interrupt are we going to use</a>
+![](./pics/load_kernel_1.png)
+
+as you can see we are saying that we are going to read sectors, now we need to do some config!!
+
+<a href="#load_kernel_part_2">config</a> value in `al` specify how many sectors to read, in this case one and remember every sector is 512bytes is enough? well for now, I'm going to make kernel that just prints something, so yeah it's enough, now becomes the question where is it (sector)
+`ch` is used to specify the cylinder number
+now becomes which track/sector, well that is `cl` we are saying that we would like to read the second sector, and
+`dh` specify which track we are saying track 0.
+The value of `dl` specifies which the type of disk that we would like to read from, the value 0h in this register means that we would like to read the sector from a floppy disk, while the value 80h means we would like to read from the hard disk #0 and 81h for hard disk #1...
+the value of `bx` used to tell where data should be loaded into memory and 13h:02h will put the data in es:bx
+
+so that is why <a href="#load_kernel_part_1">this is</a>
+
+since bx=0x0 that means our data will be loaded into es:bx
+which is 0x0800:0x0. we are done!!! now we need to do some
+checks if load failed. when the content is loaded successfully, the BIOS service 13h:02h is gonna set the carry
+flag to 0, otherwise it will be 1 we could use that, to execute other code that does some printing you can see the label `could_not_load_kernel` in `bootloader.s` file, now we need to create the kernel and put it right after the bootloader because in our code we are loading from the second sector take look at `kernel.s` and for now it's super easy because you already understand print function that is there, this [part](#kernel-code) may be weird to you well again if we remove this part the instruction `mov si, kernel_welcome` will use `ds` register as we said before, because `si` will hold only offset and `cs` has the correct value? well use because of this [part](#jump-to-kernel) in our `bootloader.s`
+
 ##### Source Code Parts
 
 ###### Print function
@@ -158,6 +179,28 @@ mov bh, 0
 int 0x10
 ```
 
+###### Load Kernel from dist to ram
+
+<span id="load_kernel_part_1"></span>
+```s
+mov ax, 0x0800
+mov es, ax
+```
+
+<span id="load_kernel_part_2"></span>
+```s
+mov al, 0x1
+mov ch, 0x0
+mov cl, 0x2
+mov dh, 0x0
+mov dl, 0x80
+```
+
+<span id="load_kernel_part_3"></span>
+```s
+mov ah, 0x2
+int 0x13
+```
 
 ###### signature 
 ```asm
@@ -170,3 +213,45 @@ dw 0xaa55
 mov ax, 0x07c0
 mov ds, ax
 ```
+
+###### Jump to kernel
+```s
+jmp 0x0800:0x0
+```
+
+##### Kernel-code
+```s
+mov ax, cs
+mov ds, ax
+```
+
+
+##### Makefile
+you know that the first sector should hold bootloader and second sector should hold the kernel so you wanna be careful here,
+
+after we got `bootloader.bin` and `kernel.bin` by using `nasm -f bin ...`  now we need to put one after another
+
+```
+dd if=bootloader.bin of=kernel.img
+```
+
+this is the first step we just copied binary from bootloader.bin into kernel.img now kernel.img hold the first 512 bytes,
+
+```
+dd seek=1
+```
+
+`seek` option says skip number of blocks in our case we are gonna skip 1 block, but what is the block size well that is why we set
+
+```
+dd bs=512
+```
+
+so we are saying block size is 512bytes, and since kernel.bin is shorter than 512bytes we use conv=sync option to say pad the rest with 0's so we end up with this
+
+```
+dd bs=512 seek=1 conv=sync if=kernel.bin of=kernel.img
+```
+
+#### Weird stuff
+>sometimes I use `hlt` and sometimes I use `jmp $` I don't why `hlt` sometimes does not work so I default back `jmp $`
