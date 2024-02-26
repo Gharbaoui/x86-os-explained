@@ -4,13 +4,10 @@ start:
 
   mov si, title_str
   call print_str
+  call load_kernel
 
-
-  mov si, test_str
-  call print_str
+  jmp 0x0800:0x0
   hlt
-
-
 
 print_str:
   mov ah, 0x0e
@@ -37,9 +34,30 @@ print_str:
 
   ret
 
+load_kernel:
+  mov ax, 0x0800
+  mov es, ax
 
+  mov ah, 0x2
+  mov al, 0x1
+  mov ch, 0x0
+  mov cl, 0x2
+  mov dh, 0x0
+  mov dl, 0x80
+  mov bx, 0x0
+
+  int 0x13
+
+  jc could_not_load_kernel
+
+  ret
+
+could_not_load_kernel:
+  mov si, failed_load
+  call print_str
+  hlt
 
 title_str db 'bootloader started', 0
-test_str db 'test string'
+failed_load db 'we could load your kernel', 0
 times 510-($-$$) db 0
 dw 0xaa55
