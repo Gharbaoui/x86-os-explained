@@ -277,6 +277,49 @@ In protected-mode, interrupt numbers, that is IDT entries indices, from 0 to 21 
 and the interrupt numbers from 32 to 255 are available for the system programmer to decide
 their meanings,
 
+##### Interrupts in more detail (HOW TO SETUP)
+since interrupts can come from software and hardware and for example they can come come from
+buttons, disk, ..., so the processor cannot be connected to all these devices via dedicated wires
+this is where *PIC programmable interrupt controller* comes in that will be connected to the cpu
+and to the devices that can interrupt
+![](./pics/pic1.png)
+well with this configuration the cpu will see that there's interrupt via (int-intr) wire but how
+does it (cpu) know what device is responsible for it so it can handel it correctly, we need extra
+lines
+![](./pics/pic2.png)
+most *pics* at least the ones I know can connect to 8 devices at most like
+*8259A* is that it? we can not handel more than 8 devices? fortunately we can
+![](./pics/pic3.png)
+this is general picture not all the picture go to wikipedia for that
+now let's see what is going on in our case x86 cpu, the pc uses 2 of these chips to allow more
+than 8 devices to interrupt
+![](./pics/pic4.png)
+
+now we have 15 interrupt lines, BTW these pics can work with multiple architecture 8085/8086...
+so we somehow need to tell it that we are in x86 environment, actually pic needs more configuration
+so how the cpu is going to communicate with this device (pic) there are two well-known type of
+communicating with external devices by the processor, either by video memory like VGA stuff, this
+type of communication is known as memory-mapped I/O, that is the main memory is used to perform
+the communication.
+there's another type which is used by PIC nad this type is known as *port-mapped I/O* communication.
+this method, each device (that uses this way) has ports each port has it's own unique number and job
+
+![](./pics/pic6.png)
+
+for example master PIC has two ports, the number of the first port is 0x20 while the second port
+is 0x21, the first port is used to send commands to the master PIC, while the second port is used
+to write data on it so the master PIC can read it.
+The same is applicable to slave PIC with different port numbers, a0h and a1h respectively. PIC has no explicit command to remap IRQs, instead, there is a command to initialize PIC, this initialization consists of multiple steps and one of these steps it is to set the required mapping. why this mapping?
+well when a device send interrupt to the PIC, PIC should send this request to the cpu, in this
+stage each IRQ number is mapped to an interrupt number for the cpu, for example IRQ0 will be sent
+to the cpu as interrupt number 8, and that may conflict with other interrupts that we have set
+in *IDT* for example interrupt number 8 is used by cpu to resolve *double fault* so we can not
+let system timer on the same interrupt number
+
+**Notes:**
+- There is a standard which tells us the device type that each IRQ is dedicated to, for example, IRQ0 is the interrupt which is received by a device known as *system timer*
+
+
 ##### Register IDTR
 it has the same structure as *GDTR* 32bit of linear address and 16 bit size
 ![](./pics/structure_of_idtr.png)
@@ -313,6 +356,79 @@ it's in bit 5 of byte 5
 Type field in segment descriptor is the first 4 bits of the fifth byte
 - Bits 40-43
 the most significant bit specifies if the application segment is a code segment
-56(when the value of the bit is 1) or a data segment (when the value of the bit is 0). 
+(when the value of the bit is 1) or a data segment (when the value of the bit is 0). 
 
 ![](./pics/type_filed_location.png)
+
+
+#### Makefile Explained
+- starter.s: initializes and loads the GDT, change operating mode
+- main.c: kernel in protected-mode this comes after start.s
+
+
+#### Source Code Explained
+>well it's a bit different now than before (part-1) because now I intend to make my kernel do
+different stuff compare to before (just printing), so the kernel would probably take more than
+512bytes or 1 sector, so our bootloader should load multiple sectors into memory first
+
+##### bootloader.s
+
+<span id="load_kernel_part_1"></span>
+```s
+mov ax, [curr_sector_to_load]
+sub ax, 2
+mul bx
+mov bx, ax
+```
+
+remember that `bx` is used as destination combined with `es` will for the first iteration when
+`curr_sector_to_load` is 2 I need `bx` to be 0, and to be 512 when the value is 3 and so on.
+how would I do that? easy
+
+>bx = (curr_sector_to_load - 2) * 512
+
+and why we start at curr_sector_to_load=2 well that is straightforward because our bootloader is
+at section 1 and I will put the reset (kernel) after aka sector 2, and by `I will put` statement
+that will be because of the makefile
+
+### starter.s
+
+```s
+bits 16
+```
+
+why is this you asking again look at the makefile and you  see that in this case I'm not using
+`nasm -f bin` but instead I'm using `nasm -f elf32` which by default generates 32bit code, which
+I don't want since we are still in real-mode not in protected-mode, so why don't compile it with
+`nasm -f bin` well I want the starter.s to be linkable with main.c
+
+
+```s
+call load_gdt
+```
+
+take a look at `gdt.s`, and you will see gdt entries and after that a label that has size and base address
+inside *load_gdt* I set it to gdtr via *lgdt* instruction why *cli* well I saw in intel manual
+that we should disable interrupts before we run *lgdt*. you maybe wondering of what are the values
+in gdt entries, you you could follow what I said before about segment descriptor and you can encode them for example in `kernel_code_descriptor` base is 0x0, and limit is 0xffff, and segment
+is application segment and it's non-conforming, and you should be able to deduce the rest
+
+```s
+call switch_to_protected_mode
+```
+
+in order to understand this function you should know that in the processor there's something called
+*control registers* named from cr0-cr7. and these registers contain values that determine the
+behavior of the processor for example, the last bit of CR0, that is bit 31 indicates that paging
+is enabled when its value is 1, in our case first bit of CR0, bit 0 determines is protected-mode
+enabled or disabled if 1 enabled and that's what I'm doing in this function `switch_to_protected_mode`
+
+```s
+call init_video_mode
+```
+
+again this is just another BIOS call to setup video mode because the moment we are in 
+protected-mode we will not be able to use BIOS, if you follow the interrupt table that was
+on wikipedia in part-1 you can see by setting al to 03 we are requesting to text mode with 16
+colors and the other interrupt when cx = 0x2000 means that I'm requesting to disable cursor
+since the user should not be able to write something.
