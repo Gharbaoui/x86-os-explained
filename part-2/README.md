@@ -316,6 +316,112 @@ to the cpu as interrupt number 8, and that may conflict with other interrupts th
 in *IDT* for example interrupt number 8 is used by cpu to resolve *double fault* so we can not
 let system timer on the same interrupt number
 
+**Remapping Pics:**
+since PIC is a port-mapped I/O and by using *out* instruction od x86 we can write something on a
+given port number.
+the *initialization command* of PIC is represented by the number 0x11, which means writing this
+value on the command port of PIC by using out instruction is going to tell the PIC that we are
+goint to initialize it.  When we send this command to the PIC through its own command port
+(20h for master PIC and a0h for slave PIC), it is going to wait for us to write four parameters 
+on its data port
+- the first parameter that we should provide is the new starting offset of IRQs, for example the
+value of this parameter is 32 why 32? as we said before we can play with interrupts starting from
+32 to 255, that means when IRQ0 will be sent to the processor as interrupt number 32d, the cpu
+is going to use it as index into *IDT*
+- The second parameter tells the PIC (that we are initializing) in which of its slot the other PIC is connected
+- The third parameter tells the PIC which mode we would like it to run on, there are multiple modes for PIC devices, but the mode that we care about and need to use is x86 mode.
+- The fourth parameter tells the PIC which IRQs to enable and which to disable
+
+```s
+mov al, 0x11
+
+; init master pic
+out 0x20, al
+; init slave pic
+out  0xa0, al
+
+mov al, 32
+;telling the master that you should start at 32
+out 0x21, al
+
+mov al, 40
+;telling the master that you should start at 40
+; why 40 you may ask? well 8 for the master so its normal that we use 40
+
+out 0xa1, al
+
+mov al, 0x4
+; telling the pic where slave is connected
+; but should not be 0x2 instead of 0x4 well its. its just different encoding
+0x4 = 100 what is happening is that we should set the right bit which is bit at index 2
+out 0x21, al
+
+mov al, 0x2
+; telling the slave where the master is connected with you
+out 0xa1, al
+
+; telling the master and slave that we are working with x86
+mov al, 0x1
+out 0x21, al
+out 0xa1, al
+
+; enable all irqs
+mov al, 0x0
+out 0x21, al
+out 0xa1, al
+
+ret
+
+```
+now we need now is to setup *IDT* look into `load_idt` label you can see it's the same as loading
+the *GDT*, now we just need to define the interrupt handlers
+look inside *idt.s* you can see that theres *isr_0 to isr_31* we said before that the first 32
+interrupts are reserved but we still need to define them, here's the choices that I had either
+handel what should happen in the assembly function itself something like this
+
+```s
+isr_13:
+    cli
+    call isr_impl_13 ;handel it here by calling
+    ret
+```
+
+or make common function that all of them should call like `isr_basic` and I can only
+write one function in c file that will be called in it `(isr_basic)`,
+but how does the function differentiate between isr's well we could pass parameter
+like some integer that says hey this is interrupt 13 for example well
+that's what I did by pushing the value `pop number`, let's now look into `isr_basic`
+well we call `interrupt_handler (c function)` after we clean the stack by `add esp, 0x4`
+and we enable interrupts again, and after we return from then function but why use `iret`
+instead of `ret`, well because `isr_basic` is not normal function because when it's called by
+the cpu a lot of stuff changes like privilege level and segments because the corresponding 
+gate descriptor is probably in another segment descriptor, and `ret` does is just take value
+on the stack jump to it, which is not enough in this case because after `isr_basic` is done the
+cpu needs to restore the previous state segment registers maybe other registers some flags and so on
+so that is why we should use `iret`, now you may have question why there's isr_x and irq_x
+and after all they both seem to handel it with the same function hence they both called 
+`interrupt_handler`, well you know that starting from 32 we are dealing with *PIC* aka interrupts
+are coming from *PIC* unlike other interrupts for example the ones `isr_0 to isr_32` *PIC* device
+needs to know whether the interrupt is handled by the CPU or not so it can move to another 
+interrupt, so what is different in `irq_basic` is that we are telling the PIC devices that
+we are done handling you could move on, illustrating example assume that disk and timer are connected to *PIC* and both of them interrupt now *PIC* is ordering them based on who's lower
+i.e who has lower interrupt number for example disk:9 timer:8, timer should be handled first
+so PIC will interrupt the cpu and says he timer should be handled now, so if we handel it the
+same way we did in `isr_basic` *PIC* device will be just waiting for the cpu to tell it I'm done
+with timer so it *(PIC)* can move on and interrupt it again with disk, so that's why we need
+to communicate with *PIC*
+so I'm sending 0x20 aka end of interrupt to master always if interrupt was coming from slave
+PIC we send it to salve also that's why there's that `jnge`, now we fill that *IDT* well if you
+read about gate descriptors before you know that we should set where the code is, and DPL ...
+here's example of entry in *IDT* `isr_0, 8, 0x8e00, 0x0000` saying to cpu if interrupt happens
+for this entry you should look in segment descriptor 8, then you can get a base address and then
+use isr_0 as offset to reach the first instruction of isr_0, and other values 0x8e00, 0x0000
+define type of it and privilege level as you know for all the details go back to the section
+that talks about *IDT*
+
+
+
+
 **Notes:**
 - There is a standard which tells us the device type that each IRQ is dedicated to, for example, IRQ0 is the interrupt which is received by a device known as *system timer*
 
@@ -432,3 +538,9 @@ protected-mode we will not be able to use BIOS, if you follow the interrupt tabl
 on wikipedia in part-1 you can see by setting al to 03 we are requesting to text mode with 16
 colors and the other interrupt when cx = 0x2000 means that I'm requesting to disable cursor
 since the user should not be able to write something.
+
+
+
+
+#### Result
+![](./pics/example.png)
