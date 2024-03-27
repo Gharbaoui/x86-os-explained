@@ -539,7 +539,8 @@ on wikipedia in part-1 you can see by setting al to 03 we are requesting to text
 colors and the other interrupt when cx = 0x2000 means that I'm requesting to disable cursor
 since the user should not be able to write something.
 
-
+#### overview of what's happening
+![](./pics/overview1.png)
 
 
 #### Result
