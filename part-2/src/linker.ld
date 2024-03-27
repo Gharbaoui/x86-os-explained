@@ -1,6 +1,6 @@
 SECTIONS
 {
-  .text 0x08000 :
+  .text 0x04000 :
   {
     code = .; _code = .; __code = .;
     *(.text)

@@ -10,7 +10,7 @@ start:
   call print_str
 
 
-  jmp 0x0800:0x0
+  jmp 0x0400:0x0
 
 print_str:
   mov ah, 0x0e
@@ -44,7 +44,7 @@ load_kernel:
   mul bx ; will store into ax
   mov bx, ax
 
-  mov ax, 0x0800
+  mov ax, 0x0400
   mov es, ax
 
   mov ah, 0x2
