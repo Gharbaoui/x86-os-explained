@@ -1,5 +1,7 @@
 bits 16
 extern kernel_entry
+extern scheduler
+extern run_next_process
 
 
 start:

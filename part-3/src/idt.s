@@ -162,9 +162,20 @@ isr_31:
 	
 isr_32:
 	cli
-	push 32
-	jmp irq_basic
-	
+	pusha
+  
+  mov eax, [esp+32] ;; will get the value of eip
+  push eax
+
+  call scheduler
+
+  mov al, 0x20 ; telling the PIC that we are done
+  out 0x20, al
+
+  add esp, 40
+  push run_next_process
+  iret
+
 isr_33:
 	cli
 	push 33
