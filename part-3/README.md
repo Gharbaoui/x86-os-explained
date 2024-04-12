@@ -155,11 +155,110 @@ typedef struct process_context {
     int eax, ecx, edx, ebx, esp, ebp, esi, edi, eip;
 } process_context_t;
 
-typedef process {
+typedef struct process {
     process_context_t context;
-    process_state state;
+    enum process_state state;
     int *base_address;
-} process_t; 
+} process_t;
+```
+
+after that we need to store array of these
+
+```c
+process_t *processes[10];
+```
+now we create the function that create the processes and this function needs to know where to 
+place the PCB in the table you can think of it as what is the next location to put the PCB in
+so global variable is needed, and another one that tracks how many processes are in the system 
+right now, so if we exceed the length of the previous array we could stop it
+```c
+int processes_count;
+int current_process_index;
+```
+so let's implement this "create the function that create the processes"
+```c
+void process_create(int *base_address, process_t *process)
+{
+    process->context.eax = 0;
+    process->context.ecx = 0;
+    process->context.edx = 0;
+    process->context.ebx = 0;
+    process->context.esp = 0;
+    process->context.ebp = 0;
+    process->context.esi = 0;
+    process->context.edi = 0;
+    process->context.eip = base_address;
+
+    process->state = READY;
+    process->base_address = base_address;
+    processes[current_process_index] = process;
+    ++current_process_index;
+    ++processes_count;
+}
+```
+
+now let's see the scheduler let's review at some point of time, the system timer emits an 
+interrupt which suspends the current process and calls the kernel to handle the interrupt, in 
+this case our kernel will call scheduler at this point of time. by using some algorithm, the
+scheduler chooses the next process, that is the process that will run after the scheduler 
+finishes its work and the kernel returns the processor to the processes. after choosing the next
+process, performing the context switching and jumping to the process code. now let's implement
+```c
+int next_process_to_run_index, current_process_running_index;
+process_t *next_process;
+
+process_t *get_next_process(void) {
+    process_t *np = processes[next_process_to_run_index];
+    current_process_running_index = next_process_to_run_index;
+    ++next_process_to_run_index;
+    next_process_to_run_index = next_process_to_run_index % processes_count;
+    return np;
+}
+
+void scheduler(int eip, int edi, int esi, int ebp, int esp, int ebx, int edx, int ecx, int eax)
+{
+    process_t *current_process;
+
+    current_process = processes[current_process_running_index];
+    next_process = get_next_process();
+
+    if (current_process->state == RUNNING)
+    {
+        current_process->context.eax = eax;
+        current_process->context.ecx = ecx;
+        current_process->context.edx = edx;
+        current_process->context.ebx = ebx;
+        current_process->context.esp = esp;
+        current_process->context.ebp = ebp;
+        current_process->context.esi = esi;
+        current_process->context.edi = edi;
+        current_process->context.eip = eip;
+    }
+    current_process->state = READY;
+
+    asm ("mov %0, %%eax; \
+        mov %0, %%ecx; \
+        mov %0, %%edx; \
+        mov %0, %%ebx; \
+        mov %0, %%esi; \
+        mov %0, %%edi;"
+        : : "r" (next_process->context.eax),
+        "r" (next_process->context.ecx),
+        "r" (next_process->context.edx),
+        "r" (next_process->context.ebx),
+        "r" (next_process->context.esi),
+        "r" (next_process->context.edi)
+    );
+
+    next_process->state = READY;
+}
+
+void run_next_process(void)
+{
+    asm("sti; \
+    jmp *%0" : : "r" (next_process->context.eip));
+}
+
 ```
 
 
@@ -172,3 +271,4 @@ typedef process {
 - each entry in the kernel table represent process and contains info needed by the kernel to
 mange the process, and this info is stored in what is called *process control block (PCB)*
 - each entry has PCB
+- not done yet it builds but there's something wrong, I'm going to put on hold for now
